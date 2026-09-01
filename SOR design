@@ -1,0 +1,301 @@
+SOR Schema Versioning & Production Data Migration — Summary
+
+1. Architecture
+
+The SOR will maintain one active MAIN table and one active HISTORY table, both always representing the latest schema.
+
+Historical schemas are retained as immutable archive tables.
+
+Example:
+
+- "customer" → always contains the latest schema.
+- "customer_history" → always contains history using the latest schema.
+- "customer_history_archive_v1" → frozen history captured under schema V1.
+- "customer_history_archive_v2" → frozen history captured under schema V2, once V3 is introduced.
+
+The active history table is therefore never renamed when the schema changes. BAU CRUD always writes to the current "customer_history" table.
+
+Schema version should be maintained separately through a schema/migration metadata table, rather than relying only on table names.
+
+Business/data version and schema version should also remain separate concepts.
+
+---
+
+2. Purpose of Versioned History
+
+The purpose of schema-versioned history is to preserve the exact historical business state as it existed under the applicable business/schema model.
+
+For example, if V1 has:
+
+"A"
+
+and V2 changes this to:
+
+"B + C"
+
+then the old value of "A" must remain available in the V1 history archive.
+
+The V1 history table should not be modified later to conform to the V2 schema.
+
+This provides:
+
+- Accurate historical representation.
+- No need to carry obsolete columns such as "A" into the current MAIN table.
+- Clear separation between old and current business models.
+- Ability to understand historical records using the schema that was applicable at that time.
+
+---
+
+3. Schema Change vs Business Change
+
+A schema change does not automatically mean that a business version must change.
+
+The important question is:
+
+Does the change modify the business state of existing records?
+
+Examples:
+
+- Adding an optional field that remains NULL for existing records → schema change only.
+- Adding a mandatory business field and populating it for existing records → business change.
+- Making an existing field mandatory and requiring existing data to be changed → business change.
+- Removing a field because the business model no longer uses it → potentially a business change.
+- Splitting "A" into "B + C" where the business provides the new values → business change.
+
+For a business migration, the existing MAIN state is preserved in the old history schema and the MAIN record receives a new business/data version.
+
+---
+
+4. V1 → V2 Migration Approach
+
+For the current migration, V1 contains:
+
+- One optional field being added.
+- One conditionally mandatory field being added.
+- One existing field being split into two fields.
+- Existing records need to move from data version 1 to data version 2.
+
+The recommended migration sequence is:
+
+1. Take a production database backup/snapshot of MAIN and HISTORY.
+2. Create a migration run/audit record.
+3. Control or temporarily freeze BAU writes to avoid concurrent modifications.
+4. Create the V1 history archive.
+5. Snapshot the existing MAIN state into V1 history, preserving the old business version.
+6. Create the new active HISTORY table with the V2 schema. It starts empty.
+7. Expand MAIN with the V2 fields while temporarily retaining obsolete V1 fields where required.
+8. Load the migration data file and match records using the primary/business key.
+9. Transform each V1 record into its V2 representation.
+10. Validate the resulting V2 record.
+11. Update MAIN to the V2 state and increment the business/data version.
+12. Create the required event/outbox record if the migration represents an event that downstream systems must consume.
+13. Record migration success for the individual record.
+14. Validate the complete migration.
+15. Apply final V2 constraints once all required data has been populated and validated.
+16. Remove obsolete V1 columns from MAIN after the migration has been proven successful.
+17. Mark the migration complete.
+18. Resume BAU operations.
+
+The old V1 history remains immutable.
+
+---
+
+5. Record-Level Migration
+
+The migration should be transactional at the record level.
+
+For each record:
+
+1. Read the current V1 MAIN record.
+2. Find the corresponding migration data using the primary key.
+3. Build the V2 representation.
+4. Apply V2 validation.
+5. Update MAIN with the V2 values.
+6. Increment the business/data version from 1 to 2.
+7. Create the event/outbox record if required.
+8. Record migration success.
+
+The old MAIN state should already have been captured in the V1 history snapshot before MAIN is transformed.
+
+Therefore, it should not be inserted into V1 history again during every individual migration update.
+
+---
+
+6. BAU APIs vs Migration
+
+The existing BAU Create and Modify APIs should not be changed to support schema migration.
+
+In particular, the migration should not call the BAU Modify API with a special "migration=true" mode.
+
+BAU Modify correctly enforces rules such as:
+
+- Immutable fields cannot be changed after creation.
+- BAU validation rules apply.
+- Previous state is moved to the active history table.
+
+Those semantics are different from a controlled V1 → V2 migration.
+
+Instead, implement a dedicated Java migration service/job that can reuse appropriate:
+
+- Domain models.
+- V2 validation logic.
+- Transformation logic.
+- Repository/database components.
+- Event generation logic.
+
+But the migration has its own orchestration and rules.
+
+---
+
+7. Migration as a Java Job
+
+Implement the migration as a controlled operational job rather than a normal REST API.
+
+For example:
+
+"V1ToV2MigrationJob"
+
+with supporting components such as:
+
+- "MigrationService"
+- "MigrationDataReader"
+- "V1ToV2Transformer"
+- "V2MigrationValidator"
+- "MigrationRepository"
+- "MigrationAuditRepository"
+- "EventOutboxRepository"
+
+The migration can be explicitly triggered by the application/deployment/PS team through the approved operational mechanism.
+
+A public BAU-facing schema migration API is not required.
+
+---
+
+8. Migration Audit
+
+The existing request/response audit table should remain focused on API traffic.
+
+Schema migration is not a normal API request, so it should have separate migration audit information.
+
+Recommended metadata includes:
+
+- Migration ID.
+- Entity/table.
+- Source schema version.
+- Target schema version.
+- Start/end time.
+- Initiated by.
+- Backup/snapshot reference.
+- Total records.
+- Successful records.
+- Failed records.
+- Migration status.
+
+A per-record migration tracking table should also capture:
+
+- Migration ID.
+- Entity ID.
+- Old data version.
+- New data version.
+- Status.
+- Error code/message.
+- Processing timestamp.
+
+This makes the migration resumable and auditable.
+
+---
+
+9. Migration Data File
+
+The migration data file should provide the business values required to construct the V2 records.
+
+The migration process should match the file data to existing production records using the primary/business key.
+
+For large datasets, loading the file into a database staging table is preferable to loading the entire file into Java memory.
+
+The staging table can then be validated and joined against MAIN before migration.
+
+---
+
+10. Validation and Constraints
+
+New V2 fields should initially be added in a way that allows existing V1 records to be populated.
+
+For example, a new mandatory field may initially be nullable during migration.
+
+The migration then:
+
+- Populates the field.
+- Validates all records.
+- Resolves failed records.
+- Applies the final "NOT NULL"/CHECK constraint only after the data is compliant.
+
+The same principle applies to conditionally mandatory fields.
+
+The V2 validation rules should be applied to the transformed record, but BAU immutable-field restrictions should not prevent the migration from performing its approved V1 → V2 transformation.
+
+---
+
+11. History Table Constraints
+
+History tables should represent the rules of the schema/business version they belong to.
+
+Current V2 business constraints should not automatically be imposed on V1 historical data.
+
+For example, if a value was valid under V1 but is no longer valid under V2, the V1 history table must still be capable of storing that historical value.
+
+History tables should therefore retain appropriate structural/integrity constraints while avoiding constraints that would incorrectly apply current business rules to historical states.
+
+---
+
+12. Event Publishing
+
+If the V1 → V2 migration is considered a business event that downstream systems need to know about, the migration should create the corresponding event/outbox record.
+
+The recommended transaction is:
+
+- Update MAIN.
+- Insert event/outbox record.
+- Insert migration audit record.
+
+These should be committed together where possible.
+
+The existing Kafka publishing mechanism can then process the outbox records.
+
+However, the business must explicitly decide whether the migration should generate Kafka events. A purely internal schema transformation should not automatically generate millions of BAU update events.
+
+---
+
+13. Idempotency and Failure Handling
+
+The migration must be safely restartable.
+
+Each migration run should have a unique "migration_id", and each entity should have a migration status.
+
+If a migration fails halfway through, it should be possible to:
+
+- Identify successful records.
+- Identify failed records.
+- Fix failed records.
+- Retry only the required records.
+- Avoid duplicate history or duplicate event records.
+
+A migration should only be marked "COMPLETE" after all required records and validations have succeeded.
+
+---
+
+14. Final Operating Model
+
+After V2 migration:
+
+- MAIN contains only the latest V2 representation.
+- Active "customer_history" contains only V2 history.
+- V1 history is frozen in "customer_history_archive_v1".
+- BAU Create/Modify/Delete APIs remain unchanged.
+- BAU updates move previous V2 state into active V2 history.
+- Future schema migration creates a new archive for the previous active history and creates a new active history schema.
+- No BAU API needs to understand old schema versions.
+
+The core principle is:
+
+BAU operates only on the latest schema. Schema migration is a separate controlled process that moves existing business state between schema versions while preserving the old state in an immutable history archive.
