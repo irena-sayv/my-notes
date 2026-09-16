@@ -23,3 +23,29 @@ RDH Team: Connect with GAE to assess topic/schema and consumption-related change
 All Teams: Confirm environment availability and readiness.
 Follow-up: Schedule a follow-up discussion once the approach is confirmed with AMS.
 
+Here's the revised MOM. A couple of quick notes below the draft.
+Subject: MoM – Internal Accounts / subAccountType Impact Discussion
+Thanks for joining the call. Please find below the summary of our discussion and action items.
+Discussion Summary
+Internal Accounts go-live is currently planned for 31 October 2026.
+For RDH to support subAccountType, RDH code changes would be required, along with a schema migration/data update to align existing production data.
+The required code is currently available in UAT as part of the TNT release, which includes fields beyond subAccountType. Since this is part of a larger release, the relevant code would need to be cherry-picked for a mid-release change.
+OpsUI: If this is implemented at RDH, OpsUI code would also need to support subAccountType for BAU operations to continue functioning correctly; otherwise the OpsUI-RDH integration would break/fail.
+MRD: Santosh to connect with MRD to assess the impact.
+GAE: Need to check if GAE uses this attribute. Regardless, a new topic will need to be created to support it.
+Static Data Approach
+AMS currently uses static data for their derivation logic in production, [for ___ — see note below].
+AMS could continue using the same static-data approach for Internal Accounts by adding subAccountType to it.
+This should do away with the need for a schema update at RDH.
+Santosh / Revathi to check with AMS on this.
+Action Items
+Santosh / Revathi: Connect with AMS to confirm their proposed approach and explore continuing with the existing static-data approach.
+Santosh: Confirm dependency/impact with MRD.
+RDH Team: Connect with OpsUI to assess required dependency/change, including BAU operational impact if subAccountType is not supported.
+RDH Team: Connect with GAE to check if the attribute is used and assess topic/schema and consumption-related changes, including the new topic required.
+RDH Team: Assess feasibility of cherry-picking subAccountType-related code from the TNT release for a mid-release change.
+All Teams: Confirm environment availability and readiness.
+Follow-up: Schedule a follow-up discussion once the approach is confirmed with AMS.
+Two things to confirm:
+I renamed "Alternative Approach" to "Static Data Approach" since it's not really an alternative — it's the existing approach continuing. Let me know if you'd prefer different wording.
+In the static data bullet, your dictation had "...currently in production for Jamaica we can say" — that didn't come through clearly. Could you tell me what should go there?
