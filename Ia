@@ -1,0 +1,25 @@
+
+Thanks for joining the call. Please find below the summary of our discussion and action items.
+Discussion Summary
+Internal Accounts go-live is currently planned for 31 October 2026.
+The discussion focused on understanding the impact to RDH and its partner systems to support the subAccountType attribute required by the AMS team.
+Impact to RDH if subAccountType is added to the RDH response/schema:
+RDH code changes would be required to support the new attribute.
+A schema migration/data update would also be required to align the existing production data with the updated schema.
+The required code is currently available in UAT as part of another planned release; the feasibility of taking up the required changes separately as a mid-release change needs to be assessed.
+OpsUI: Dependency identified, as changes would be required to support the new attribute.
+MRD: AMS team to connect with MRD directly to assess the impact/dependency.
+GAE: As a downstream consumer of RDH data, GAE impact needs to be assessed. In addition to supporting the new attribute, any change to the RDH topic/schema may require corresponding changes on the GAE side, including topic-level changes.
+Alternative approach – Static Data:
+An alternative approach discussed was for the AMS team to continue using static data instead of consuming the new attribute through RDH.
+This approach is already being used in production, where the required account-class data was provided and loaded as static data on Day 0.
+The planned RDH API integration is part of a future major release and is not currently available in production.
+The preferred approach from the RDH perspective is therefore to explore whether the existing static-data approach can be continued for the Internal Accounts release, which would avoid RDH code/schema changes and associated partner dependencies.
+Action Items
+Santosh / Revathi: Connect with AMS to confirm their proposed approach and explore continuing with the existing static-data approach.
+Santosh: Confirm dependency/impact with MRD.
+RDH Team: Connect with OpsUI to assess the required dependency/change.
+RDH Team: Connect with GAE to assess topic/schema and consumption-related changes.
+All Teams: Confirm environment availability and readiness.
+Follow-up: Schedule a follow-up discussion once the approach is confirmed with AMS.
+
