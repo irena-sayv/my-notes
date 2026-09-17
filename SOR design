@@ -299,3 +299,87 @@ After V2 migration:
 The core principle is:
 
 BAU operates only on the latest schema. Schema migration is a separate controlled process that moves existing business state between schema versions while preserving the old state in an immutable history archive.
+
+Controller
+└── initiateSchemaMigration()
+
+Service
+├── createMigrationBackup()
+├── preservePreviousSchemaHistory()
+├── initializeActiveHistory()
+├── updateMainSchema()
+├── migrateMainData()
+│   ├── updateMainData()
+│   ├── insertMigrationAudit()
+│   └── insertMigrationEvents()
+├── generateReconciliationReport()
+├── applySchemaConstraints()
+└── completeMigration()
+
+public void migrateSchema(
+        String entity,
+        int fromSchemaVersion,
+        int toSchemaVersion) {
+
+    createMigrationBackup();
+
+    preservePreviousSchemaHistory(fromSchemaVersion);
+
+    initializeActiveHistory(toSchemaVersion);
+
+    updateMainSchema(toSchemaVersion);
+
+    migrateMainData(fromSchemaVersion, toSchemaVersion);
+
+    generateReconciliationReport();
+
+    applySchemaConstraints(toSchemaVersion);
+
+    completeMigration();
+
+
+Transaction
+│
+├── UPDATE customer
+│     V1 → V2
+│
+├── INSERT schema_migration_record
+│     SUCCESS
+│
+└── INSERT event_outbox
+      CUSTOMER_MIGRATED
+│
+└── COMMIT
+
+
+}
+
+Migration Trigger
+      ↓
+Create Backup
+      ↓
+Preserve Previous History
+      ↓
+Initialize Active History
+      ↓
+Update MAIN Schema
+      ↓
+┌──────────────────────────────┐
+│     Data Migration           │
+│                              │
+│  Update MAIN                 │
+│  Insert Migration Audit      │
+│  Insert Outbox Events        │
+│                              │
+│  All in ONE Transaction      │
+└──────────────────────────────┘
+      ↓
+Reconcile & Verify
+      ↓
+Apply Final Constraints
+      ↓
+Mark Migration Complete
+      ↓
+Resume BAU
+      ↓
+Manual Outbox Event Publishing
