@@ -383,3 +383,60 @@ Mark Migration Complete
 Resume BAU
       ↓
 Manual Outbox Event Publishing
+
+                         ┌─────────────────────────────┐
+                         │     Migration Trigger       │
+                         │     Internal API / curl     │
+                         └──────────────┬──────────────┘
+                                        ↓
+                         ┌─────────────────────────────┐
+                         │      Load Migration         │
+                         │        Definition           │
+                         │                             │
+                         │  Externalized YAML          │
+                         │  • From / To Version        │
+                         │  • Applicable Columns       │
+                         │  • Mandatory Columns        │
+                         └──────────────┬──────────────┘
+                                        │
+                         ┌──────────────▼──────────────┐
+                         │      Reusable Migration     │
+                         │           Service           │
+                         │                             │
+                         │  Same Java flow for         │
+                         │  V1 → V2, V2 → V3, etc.     │
+                         └──────────────┬──────────────┘
+                                        ↓
+                              Create Backup
+                                        ↓
+                         Preserve Previous History
+                              as Immutable Archive
+                                        ↓
+                         Initialize New Active History
+                                        ↓
+                            Update MAIN Schema
+                                        ↓
+                 ┌─────────────────────────────────────────┐
+                 │          DATA MIGRATION                  │
+                 │                                         │
+                 │  Update MAIN                            │
+                 │          ↓                              │
+                 │  Insert Migration Audit                 │
+                 │          ↓                              │
+                 │  Insert Outbox Events                   │
+                 │                                         │
+                 │       ONE TRANSACTION                   │
+                 │       ALL OR ROLLBACK                   │
+                 └────────────────────┬────────────────────┘
+                                      ↓
+                         Reconcile & Verify Migration
+                                      ↓
+                         Apply Final Schema Constraints
+                                      ↓
+                           Mark Migration Complete
+                                      ↓
+                               Resume BAU
+                                      ↓
+                    Manual Outbox Event Publishing
+                                      ↓
+                                  Kafka
