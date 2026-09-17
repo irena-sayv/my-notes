@@ -440,3 +440,69 @@ Manual Outbox Event Publishing
                     Manual Outbox Event Publishing
                                       ↓
                                   Kafka
+
+
+                    ┌──────────────────────────────┐
+                    │      Migration Trigger        │
+                    │      Internal API / curl      │
+                    └──────────────┬───────────────┘
+                                   ↓
+                    ┌──────────────────────────────┐
+                    │   Externalized Migration     │
+                    │          Config              │
+                    │                              │
+                    │ v1-to-v2-schema-migration.yml│
+                    │                              │
+                    │ • From / To Schema Version   │
+                    │ • Entity 1                   │
+                    │   - Applicable Columns       │
+                    │   - Mandatory Columns        │
+                    │ • Entity 2                   │
+                    │   - Applicable Columns       │
+                    │   - Mandatory Columns        │
+                    │ • Entity 3                   │
+                    │   - Applicable Columns       │
+                    │   - Mandatory Columns        │
+                    └──────────────┬───────────────┘
+                                   ↓
+                    ┌──────────────────────────────┐
+                    │   Reusable Migration Service │
+                    │                              │
+                    │ Same flow for:               │
+                    │ V1 → V2 / V2 → V3 / ...      │
+                    └──────────────┬───────────────┘
+                                   ↓
+                          Create Backup
+                                   ↓
+                    Preserve Previous History
+                       as Immutable Archive
+                                   ↓
+                    Initialize Active History
+                                   ↓
+                       Update MAIN Schema
+                                   ↓
+          ┌────────────────────────────────────────────┐
+          │             DATA MIGRATION                 │
+          │                                            │
+          │  Update MAIN                               │
+          │       ↓                                    │
+          │  Insert Migration Audit                    │
+          │       ↓                                    │
+          │  Insert Outbox Events                      │
+          │                                            │
+          │       ONE SPRING TRANSACTION               │
+          │       All succeed → COMMIT                 │
+          │       Any failure → ROLLBACK               │
+          └──────────────────────┬─────────────────────┘
+                                 ↓
+                    Reconcile & Verify Migration
+                                 ↓
+                    Apply Final Schema Constraints
+                                 ↓
+                       Mark Migration Complete
+                                 ↓
+                            Resume BAU
+                                 ↓
+                  Manual Outbox Event Publishing
+                                 ↓
+                             Kafka
