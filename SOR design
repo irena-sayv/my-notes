@@ -506,3 +506,45 @@ Manual Outbox Event Publishing
                   Manual Outbox Event Publishing
                                  ↓
                              Kafka
+
+
+
+Migration Trigger
+      ↓
+Load Migration Config
+      ↓
+Validate Migration Config
+  - from-version
+  - to-version
+  - entity
+  - applicable columns
+  - mandatory columns
+      ↓
+Read CSV
+      ↓
+Validate CSV
+  - required fields
+  - duplicates
+  - data formats
+  - mandatory values
+      ↓
+Validate Record Coverage
+  - IDs exist in MAIN
+  - expected record count
+      ↓
+Prepare Database
+  - Create Backup
+  - Preserve Previous History
+  - Initialize Active History
+  - Update MAIN Schema
+      ↓
+Data Migration
+  - Batch UPDATE MAIN
+  - Batch INSERT Audit
+  - Batch INSERT Outbox
+      ↓
+Reconcile
+      ↓
+Apply Final Constraints
+      ↓
+Mark Migration Complete
