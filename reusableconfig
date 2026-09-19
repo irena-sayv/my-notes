@@ -1,0 +1,133 @@
+Yes. And I agree with your instinct: the previous ObjectMapper + YAMLFactory + InputStream loader is more code than you need.
+You can use Spring's configuration mechanism for a separate YAML file. The key point is that @ConfigurationProperties does not inherently require the properties to come from application.yml; you can explicitly import another configuration resource.
+For your case, I'd use Spring @ConfigurationProperties + @ImportResource/config-data import, depending on your Spring Boot version. The cleanest modern approach is spring.config.import.
+Recommended approach
+Keep:
+application.yml
+migrations/
+├── v1-to-v2-schema-migration.yml
+└── v2-to-v3-schema-migration.yml
+Then explicitly import the migration file when that migration is being run.
+However, there is an important architectural consideration: you don't want both V1→V2 and V2→V3 loaded into the same @ConfigurationProperties bean with the same prefix, because then you lose the clean version separation.
+For your reusable migration framework, I'd actually recommend a slightly simpler pattern:
+# v1-to-v2-schema-migration.yml
+
+schema-migration:
+  from-version: 1
+  to-version: 2
+
+  entities:
+    customer:
+      applicable-columns:
+        - field_b
+        - field_c
+      mandatory-columns:
+        - field_b
+
+    address:
+      applicable-columns:
+        - city
+        - postal_code
+      mandatory-columns:
+        - city
+
+    account:
+      applicable-columns:
+        - account_type
+      mandatory-columns:
+        - account_type
+Then Java:
+@ConfigurationProperties(prefix = "schema-migration")
+public class SchemaMigrationConfig {
+
+    private int fromVersion;
+    private int toVersion;
+    private Map<String, EntityMigrationConfig> entities;
+
+    // getters/setters
+}
+And:
+@Configuration
+@EnableConfigurationProperties(SchemaMigrationConfig.class)
+public class MigrationConfig {
+
+}
+But how does Spring know about the separate YAML?
+That's the important part.
+Spring Boot's configuration system can load additional configuration files using:
+spring:
+  config:
+    import: classpath:migrations/v1-to-v2-schema-migration.yml
+But putting that in application.yml means you've made the migration file part of the normal application configuration.
+I don't think that's ideal for your requirement.
+You want:
+application.yml
+     │
+     └── normal application configuration
+
+
+v1-to-v2-schema-migration.yml
+     │
+     └── migration-specific configuration
+So I'd have the migration deployment/startup mechanism explicitly select the migration configuration file, rather than permanently importing every migration definition.
+For example, you can run with:
+--spring.config.additional-location=classpath:/migrations/v1-to-v2-schema-migration.yml
+Then Spring loads it through its normal configuration mechanism, and @ConfigurationProperties binds it.
+So your Java code remains very simple:
+@Service
+public class SchemaMigrationService {
+
+    private final SchemaMigrationConfig migrationConfig;
+
+    public SchemaMigrationService(
+            SchemaMigrationConfig migrationConfig) {
+        this.migrationConfig = migrationConfig;
+    }
+
+    public void migrateMainData(...) {
+
+        EntityMigrationConfig config =
+                migrationConfig.getEntities().get(entity);
+
+        // use config.getApplicableColumns()
+        // use config.getMandatoryColumns()
+    }
+}
+Why this fits your architecture
+You then have:
+                  Spring Configuration
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+      application.yml       Migration YAML
+             │                       │
+      normal application       V1 → V2
+       configuration           definition
+                                     │
+                                     ▼
+                           @ConfigurationProperties
+                                     │
+                                     ▼
+                           MigrationConfig Bean
+                                     │
+                                     ▼
+                           Migration Service
+And for V2 → V3:
+v2-to-v3-schema-migration.yml
+             │
+             ▼
+     same Java config model
+             │
+             ▼
+     same Migration Service
+One caveat
+If the application is running normally with application.yml and you dynamically want to choose between:
+v1-to-v2-schema-migration.yml
+v2-to-v3-schema-migration.yml
+at runtime based on fromVersion/toVersion, @ConfigurationProperties isn't the best fit. Spring configuration is generally loaded as application configuration rather than as an arbitrary file selected per service call.
+For your use case, I'd choose between:
+Option A — migration is a deployment-time operation:
+Use Spring Config Data + @ConfigurationProperties. This is what I'd recommend for your current migration.
+Option B — migration files are selected dynamically at runtime:
+Use the small dedicated MigrationConfigLoader we discussed earlier.
+Given that you're triggering this as an internal migration during deployment, Option A is actually a very good fit and keeps your Java implementation considerably simpler.
