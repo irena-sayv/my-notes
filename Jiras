@@ -1,0 +1,443 @@
+Yes. Based on everything we've discussed, I would not make each individual SQL operation a separate Jira. That would create too many tightly coupled tickets.
+Since the Java implementation is dependent, I would divide it into 5 implementation Jiras, with the migration flow and transaction boundaries clearly documented.
+Recommended Jira breakdown
+Jira
+Summary
+Purpose
+1
+Prepare Database for Schema Migration
+Backup, history archive, active history, schema preparation
+2
+Implement MAIN Data Migration from CSV
+Read/validate CSV and bulk update MAIN
+3
+Implement Migration Audit and Outbox Event Logging
+Add audit + outbox records as part of migration transaction
+4
+Apply Final Schema Constraints
+Apply NOT NULL/check/conditional constraints after successful migration
+5
+Implement Migration Reconciliation and Completion
+Validate migrated data, generate reconciliation report, complete migration
+I would keep Jira 2 and Jira 3 separate logically, but make it explicit that they form one transaction during actual migration execution.
+Jira 1 — Prepare Database for Schema Migration
+Summary
+Prepare Database for Schema Migration Execution
+Description
+Overview
+Implement the pre-migration database preparation required before migrating existing production data from the current schema version to the new schema version.
+This Jira covers the database preparation steps only. Actual business data migration from CSV will be covered in the subsequent Jira.
+The implementation should be reusable for future schema migrations such as V2 → V3.
+Scope
+The migration preparation flow should:
+Create/verify production backup or snapshot reference.
+Preserve the current history state as an immutable schema-versioned archive.
+Initialize the new active HISTORY table using the target schema.
+Update MAIN table structure to the target schema.
+Keep newly introduced mandatory/conditional columns permissive during the data migration phase.
+Record migration execution/control information.
+Implementation Details
+The migration service should expose a reusable orchestration method:
+public void migrateSchema(
+        String entity,
+        int fromSchemaVersion,
+        int toSchemaVersion)
+Preparation methods:
+createMigrationBackup();
+
+preservePreviousSchemaHistory(
+        fromSchemaVersion);
+
+initializeActiveHistory(
+        toSchemaVersion);
+
+updateMainSchema(
+        toSchemaVersion);
+Migration-specific rules must be read from the externalized migration definition YAML, rather than application.yml.
+Example:
+migrations/
+├── v1-to-v2-schema-migration.yml
+└── v2-to-v3-schema-migration.yml
+The YAML contains configuration for all applicable entities, including:
+from-version
+to-version
+applicable-columns
+mandatory-columns
+Expected State After Preparation
+MAIN
+→ Target schema, data not yet fully migrated
+
+HISTORY
+→ New target-schema active history
+
+HISTORY_ARCHIVE_<previous-version>
+→ Immutable copy of pre-migration state
+Error Handling
+Backup failure → stop migration.
+History archive creation failure → stop migration.
+Active HISTORY preparation failure → stop migration.
+MAIN schema update failure → stop migration.
+Migration must not proceed to CSV data migration if preparation is incomplete.
+Migration status should reflect the failed stage.
+Acceptance Criteria
+[ ] Backup/snapshot reference is recorded.
+[ ] Previous HISTORY state is preserved as an immutable archive.
+[ ] Target active HISTORY is initialized.
+[ ] MAIN has the target schema required for data migration.
+[ ] Final mandatory constraints are not applied at this stage.
+[ ] Migration preparation failure prevents data migration.
+[ ] Implementation is reusable for future schema versions.
+Jira 2 — Implement MAIN Data Migration from CSV
+Summary
+Implement Bulk MAIN Data Migration from External CSV
+Description
+Overview
+Implement the data migration component that reads business-provided migration data from CSV and updates existing MAIN records from the previous business/data version to the target version.
+This Jira covers CSV processing, validation and MAIN data update.
+The migration must not use BAU Create/Modify APIs because migration transformations may differ from normal business CRUD rules.
+Flow
+CSV
+ ↓
+Read Migration Data
+ ↓
+Validate CSV
+ ↓
+Validate Record Coverage
+ ↓
+Bulk Update MAIN
+ ↓
+Verify Update Results
+Implementation Details
+Suggested classes:
+migration/
+└── v1tov2/
+    ├── MigrationDataReader
+    ├── MigrationRepository
+    └── MigrationException
+Suggested methods:
+readMigrationData();
+
+validateMigrationData();
+
+validateRecordCoverage();
+
+updateMainData();
+
+validateUpdateCounts();
+The implementation should use the latest application/domain model where appropriate, but MAIN persistence should use explicit JDBC DML through JdbcTemplate.
+Bulk Update
+For the expected ~2,000 records, use JDBC batch processing:
+jdbcTemplate.batchUpdate(
+        updateSql,
+        migrationRows,
+        2000,
+        this::setUpdateParameters);
+The update should:
+Update only applicable columns.
+Preserve unchanged existing columns.
+Populate new/replacement fields from the CSV.
+Set the migrated business/data version to the target version.
+Identify records using the existing business/entity ID.
+Use parameterized SQL.
+Example:
+UPDATE customer
+SET field_b = ?,
+    field_c = ?,
+    data_version = ?
+WHERE customer_id = ?
+  AND data_version = ?
+Transaction
+The actual migration execution should be performed within one Spring transaction.
+The MAIN update is the first batch operation within that transaction.
+ONE SPRING TRANSACTION
+
+    ┌───────────────────────┐
+    │ Batch UPDATE MAIN     │
+    │ ~2,000 records        │
+    └───────────┬───────────┘
+                ↓
+         continue transaction
+batchUpdate() itself does not commit the transaction. Spring's @Transactional controls the commit/rollback boundary.
+Error Scenarios
+Scenario
+Expected behaviour
+CSV cannot be read
+Migration fails; no MAIN update
+Duplicate entity ID
+Migration fails before update
+Missing entity ID in MAIN
+Migration fails
+Mandatory migration value missing
+Migration fails
+Invalid migration value
+Migration fails
+Unexpected record count
+Migration fails
+One record update fails
+Entire transaction rolls back
+Update count ≠ expected
+Migration fails/rolls back
+DB connection/database failure
+Entire transaction rolls back
+For a successful migration, every expected record should be updated exactly once.
+Acceptance Criteria
+[ ] CSV is read successfully.
+[ ] CSV validation occurs before MAIN data modification.
+[ ] Duplicate/missing/invalid records are detected.
+[ ] Applicable columns are populated from migration input.
+[ ] Unchanged columns remain untouched.
+[ ] Business/data version is updated to target version.
+[ ] MAIN update uses JDBC batch processing.
+[ ] ~2,000 records are supported in the configured batch.
+[ ] Update counts are validated.
+[ ] Failure results in rollback of the transaction.
+Jira 3 — Implement Migration Audit and Outbox Event Logging
+Summary
+Implement Migration Audit and Outbox Event Logging
+Description
+Overview
+Implement migration audit and outbox event creation for successfully migrated MAIN records.
+These operations must participate in the same Spring transaction as the MAIN data update.
+The outbox/event log is created during migration, but Kafka publishing is intentionally not part of this transaction. Events will be manually published after reconciliation and verification.
+Transaction Design
+The migration should use:
+@Transactional
+public void migrateMainData(...) {
+    updateMainData();
+    insertMigrationAudit();
+    insertMigrationEvents();
+}
+Conceptually:
+┌─────────────────────────────────────────────┐
+│           ONE SPRING TRANSACTION            │
+│                                             │
+│  1. Batch UPDATE MAIN                       │
+│                 ↓                           │
+│  2. Batch INSERT MIGRATION AUDIT            │
+│                 ↓                           │
+│  3. Batch INSERT OUTBOX EVENTS              │
+│                                             │
+│       All succeed → COMMIT                  │
+│       Any failure  → ROLLBACK               │
+└─────────────────────────────────────────────┘
+All three operations must use the same Spring-managed DataSource/transaction manager.
+Implementation Methods
+updateMainData();
+
+insertMigrationAudit();
+
+insertMigrationEvents();
+Repositories:
+MigrationRepository
+MigrationAuditRepository
+Migration Audit
+Record-level audit should contain at least:
+audit_id
+migration_id
+entity_name
+entity_id
+from_schema_version
+to_schema_version
+from_data_version
+to_data_version
+status
+migration_definition
+migrated_at
+migrated_by
+error_code
+error_message
+The audit should identify which migration definition was used, for example:
+CUSTOMER_V1_TO_V2
+Outbox Events
+For every successfully migrated record, create the required V2 event/outbox record.
+The event should represent the migrated V2 state according to the existing outbox/event contract.
+Kafka publishing is not performed by the migration transaction.
+Migration
+   ↓
+Outbox Event Created
+   ↓
+Reconciliation
+   ↓
+Manual Publish Trigger
+   ↓
+Kafka
+Error Scenarios
+Scenario
+Expected behaviour
+MAIN update fails
+Roll back entire transaction
+Audit insert fails
+Roll back MAIN + audit
+Outbox insert fails
+Roll back MAIN + audit + outbox
+Audit record count mismatch
+Roll back transaction
+Outbox record count mismatch
+Roll back transaction
+Kafka unavailable
+Migration DB transaction remains unaffected; publish later
+Manual publishing fails
+Events remain available for retry using existing mechanism
+Acceptance Criteria
+[ ] Audit entries are created for migrated records.
+[ ] Outbox events are created for migrated records.
+[ ] MAIN update, audit insert and outbox insert use one transaction.
+[ ] All three operations use JDBC batch processing.
+[ ] Failure of any operation rolls back the transaction.
+[ ] Kafka is not invoked as part of the migration transaction.
+[ ] Outbox events can be manually published after reconciliation.
+Jira 4 — Apply Final Schema Constraints
+Summary
+Apply Final Constraints After Successful Schema Migration
+Description
+Overview
+Apply the final target-schema constraints only after all existing production data has been successfully migrated and reconciled.
+During preparation/data migration, newly introduced mandatory or conditional mandatory columns remain permissive to allow existing records to be populated.
+Flow
+MAIN Data Migration
+        ↓
+Reconciliation Successful
+        ↓
+Apply Final V2 Constraints
+        ↓
+Migration Complete
+Implementation Methods
+applySchemaConstraints(
+        String entity,
+        int targetSchemaVersion);
+The method should apply target-version constraints based on the migration definition/schema requirements.
+Examples:
+NOT NULL
+CHECK
+required relationships
+conditional mandatory rules implemented at DB level where applicable
+Error Handling
+Constraint application failure → migration remains incomplete.
+Migration must not be marked COMPLETED.
+Failure details must be recorded in migration control/audit.
+Do not proceed to normal BAU until the schema is confirmed valid.
+Acceptance Criteria
+[ ] Constraints are applied only after successful reconciliation.
+[ ] All migrated records satisfy the final constraints.
+[ ] Constraint failures are detected.
+[ ] Migration is not marked complete if constraints cannot be applied.
+Jira 5 — Implement Migration Reconciliation and Completion
+Summary
+Implement Migration Reconciliation and Migration Completion
+Description
+Overview
+Implement reconciliation to verify that the migration completed successfully before applying final constraints and resuming BAU.
+The reconciliation should provide sufficient evidence that all expected records were migrated correctly.
+Reconciliation Checks
+At minimum:
+CSV Record Count
+        =
+Expected Migration Record Count
+
+        ↓
+
+MAIN Migrated Record Count
+        =
+Expected Count
+
+        ↓
+
+Audit Record Count
+        =
+Migrated Record Count
+
+        ↓
+
+Outbox Event Count
+        =
+Migrated Record Count
+
+        ↓
+
+Failed Records
+        =
+0
+Additional checks should include:
+Records from the CSV exist in MAIN.
+All applicable fields contain expected migrated values.
+Mandatory migration fields are populated.
+Target data version is correct.
+No unexpected records were modified.
+Audit entries exist for migrated records.
+Outbox events exist for migrated records.
+Implementation Methods
+generateReconciliationReport();
+
+validateMigrationResult();
+
+completeMigration();
+If you want to keep it simpler, these can be:
+reconcileMigration();
+
+completeMigration();
+Completion Flow
+Migration
+    ↓
+Reconciliation
+    ↓
+All Checks Pass?
+   /       \
+ No         Yes
+ ↓           ↓
+FAILED    Apply Constraints
+             ↓
+       Mark COMPLETE
+             ↓
+          Resume BAU
+Error Handling
+If reconciliation fails:
+Do not apply final constraints.
+Do not mark migration complete.
+Do not resume BAU.
+Record reconciliation failures.
+Provide a reconciliation report for investigation.
+Acceptance Criteria
+[ ] Migration counts are reconciled.
+[ ] MAIN data is verified.
+[ ] Audit count is reconciled.
+[ ] Outbox count is reconciled.
+[ ] Mandatory fields are verified.
+[ ] Target data version is verified.
+[ ] Reconciliation report is generated.
+[ ] Migration is marked COMPLETED only when all checks pass.
+[ ] BAU resumes only after successful completion.
+One architectural point I'd make explicit across the Jiras
+Don't make the Jira sequence imply that Jira 2 commits MAIN data and Jira 3 later creates audit/outbox records.
+They are separate implementation units, but at runtime they form one transaction:
+                MIGRATE MAIN DATA
+                       │
+                       ▼
+        ┌──────────────────────────────┐
+        │      ONE TRANSACTION         │
+        │                              │
+        │  1. Update MAIN              │
+        │  2. Insert Migration Audit   │
+        │  3. Insert Outbox Events     │
+        │                              │
+        │  SUCCESS → COMMIT            │
+        │  FAILURE → ROLLBACK          │
+        └──────────────┬───────────────┘
+                       │
+                       ▼
+                RECONCILIATION
+                       │
+                       ▼
+              APPLY CONSTRAINTS
+                       │
+                       ▼
+               MIGRATION COMPLETE
+                       │
+                       ▼
+                  RESUME BAU
+                       │
+                       ▼
+             MANUAL EVENT PUBLISH
+This is important because otherwise someone reading the Jira might interpret Jira 2 = update and commit MAIN, followed by Jira 3 = audit/outbox, which would violate the atomicity we've designed.
+I would also add one common technical note to Jira 2 and Jira 3
+Transaction boundary: updateMainData(), insertMigrationAudit(), and insertMigrationEvents() are executed within a single Spring-managed transaction. All operations use the same transaction-managed datasource. Any runtime failure in these operations causes the complete transaction to roll back.
+This gives your developers very clear implementation guidance without over-specifying the JDBC implementation beyond what we have already agreed.
