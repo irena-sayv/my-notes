@@ -131,3 +131,142 @@ Use Spring Config Data + @ConfigurationProperties. This is what I'd recommend fo
 Option B — migration files are selected dynamically at runtime:
 Use the small dedicated MigrationConfigLoader we discussed earlier.
 Given that you're triggering this as an internal migration during deployment, Option A is actually a very good fit and keeps your Java implementation considerably simpler.
+
+YesYes. This can be a fully independent Jira focused only on the migration configuration framework. It should not depend on the database migration, CSV processing, or migration execution Jiras.
+Jira Summary
+Implement Externalized Schema Migration Configuration
+Description
+Implement an externalized configuration mechanism for schema migrations so that migration-specific rules are maintained separately from application.yml and can be reused for future schema transitions such as V1→V2, V2→V3, etc.
+The configuration should be loaded and validated before any migration execution takes place.
+Scope
+1. Create migration configuration
+Create dedicated YAML files under:
+src/main/resources/migrations/
+Example:
+v1-to-v2-schema-migration.yml
+The configuration should contain:
+from-version
+to-version
+entity-level configuration
+applicable columns
+mandatory columns
+Example:
+schema-migration:
+  from-version: 1
+  to-version: 2
+
+  entities:
+    customer:
+      applicable-columns:
+        - customer_type
+        - field_b
+        - field_c
+        - optional_field
+        - conditional_field
+
+      mandatory-columns:
+        - customer_type
+        - field_b
+
+    address:
+      applicable-columns:
+        - address_type
+        - city
+        - postal_code
+
+      mandatory-columns:
+        - address_type
+        - city
+
+    account:
+      applicable-columns:
+        - account_type
+        - currency
+        - status
+
+      mandatory-columns:
+        - account_type
+        - currency
+2. Implement configuration model
+Create Spring configuration classes using @ConfigurationProperties to represent the migration configuration.
+Example structure:
+SchemaMigrationConfig
+ ├── fromVersion
+ ├── toVersion
+ └── entities
+      ├── customer
+      ├── address
+      └── account
+Each entity configuration should contain:
+EntityMigrationConfig
+ ├── applicableColumns
+ └── mandatoryColumns
+3. Configure Spring to load the migration YAML
+Configure the application to load the selected migration YAML as an additional Spring configuration source.
+The migration YAML should remain separate from the normal application configuration.
+Example:
+application.yml
+        +
+v1-to-v2-schema-migration.yml
+The implementation should allow the same mechanism to be used for future migration definitions.
+4. Validate loaded configuration
+Implement configuration validation before migration execution.
+Validation should include:
+Configured from-version matches the requested source version.
+Configured to-version matches the requested target version.
+Requested entity exists in the configuration.
+applicable-columns is configured.
+mandatory-columns is configured.
+Mandatory columns are a subset of applicable columns.
+No duplicate column definitions.
+Migration definition is not empty or incomplete.
+Example:
+Requested: V1 → V2
+
+Loaded config: V1 → V2
+        ↓
+      VALID
+        ↓
+Migration can proceed
+If the wrong configuration is loaded:
+Requested: V1 → V2
+
+Loaded config: V2 → V3
+        ↓
+      INVALID
+        ↓
+Migration must not proceed
+Out of Scope
+This Jira should not implement:
+CSV reading
+CSV validation
+Database backup
+MAIN schema changes
+HISTORY changes
+MAIN data migration
+Migration audit insertion
+Outbox event insertion
+Reconciliation
+Constraint application
+Kafka publishing
+Those will be handled by the migration implementation Jiras.
+Suggested Classes
+migration/
+└── config/
+    ├── SchemaMigrationConfig
+    ├── EntityMigrationConfig
+    └── MigrationConfig
+Acceptance Criteria
+[ ] Dedicated V1→V2 migration YAML is created under resources/migrations.
+[ ] Configuration contains source and target schema versions.
+[ ] Configuration supports multiple entities.
+[ ] Entity configuration supports applicable and mandatory columns.
+[ ] Configuration is loaded using Spring configuration mechanisms.
+[ ] Configuration is not placed in application.yml/application.properties.
+[ ] @ConfigurationProperties is used to bind the configuration.
+[ ] Configuration validation is implemented.
+[ ] Source/target version mismatch causes migration configuration validation to fail.
+[ ] Invalid entity or column configuration causes validation to fail.
+[ ] Configuration validation occurs before any database migration operation.
+[ ] The implementation is reusable for future V2→V3, V3→V4, etc.
+[ ] No CSV or database migration logic is included in this Jira.
