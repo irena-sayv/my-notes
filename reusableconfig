@@ -270,3 +270,87 @@ Acceptance Criteria
 [ ] Configuration validation occurs before any database migration operation.
 [ ] The implementation is reusable for future V2→V3, V3→V4, etc.
 [ ] No CSV or database migration logic is included in this Jira.
+
+Yes, I think a separate “Schema Migration Definition” implementation section is cleaner. Your main service flow can stay focused on runtime processing, while this section explains the reusable configuration behind it.
+Schema Migration Definition
+Purpose
+Externalize schema-specific migration rules from the migration service.
+Allow the same migration framework to be reused for future schema transitions such as V2→V3, V3→V4, etc.
+Avoid hard-coding version-specific migration rules in Java code.
+Definition contains
+From Schema Version — source schema version.
+To Schema Version — target schema version.
+Entity configuration — entities covered by the migration.
+Applicable Fields — fields that can be populated/updated as part of the migration.
+Mandatory Fields — applicable fields that must have valid migration values.
+Example:
+schema-migration:
+  from-version: 1
+  to-version: 2
+
+  entities:
+    customer:
+      applicable-columns:
+        - field_b
+        - field_c
+        - customer_type
+      mandatory-columns:
+        - field_b
+        - field_c
+
+    address:
+      applicable-columns:
+        - address_type
+        - city
+        - postal_code
+      mandatory-columns:
+        - address_type
+        - city
+Loading & Usage
+Migration definition is maintained as a version-specific YAML file.
+Example: v1-to-v2-schema-migration.yml
+Definition is loaded during application startup using Spring configuration.
+The loaded definition is available to the Migration Service at runtime.
+Migration request fromVersion / toVersion is validated against the loaded definition before migration starts.
+Applicable fields from the definition drive:
+Migration data validation
+Fields updated in MAIN
+Fields included in reconciliation
+Reusability
+v1-to-v2-schema-migration.yml
+            ↓
+      Migration Framework
+            ↓
+v2-to-v3-schema-migration.yml
+            ↓
+      Same Migration Framework
+            ↓
+v3-to-v4-schema-migration.yml
+Key design point: the migration framework remains common, while the schema migration definition changes per version transition. This avoids creating separate migration implementations for every V1→V2, V2→V3, etc. transition.
+
+Schema Migration Definition
+Purpose
+Externalize schema-specific migration rules.
+Reuse the same migration framework for future versions (V2→V3, V3→V4, etc.).
+Properties
+From Version
+To Version
+Entity
+Applicable Fields – fields that can be populated/updated during migration.
+Mandatory Fields – applicable fields that must have valid migration values.
+Loaded during application startup and available to the Migration Service.
+Sample
+schema-migration:
+  from-version: 1
+  to-version: 2
+
+  entities:
+    customer:
+      applicable-columns:
+        - field_b
+        - field_c
+        - customer_type
+      mandatory-columns:
+        - field_b
+        - field_c
+Reusability: Same structure/framework can be used for v2-to-v3-schema-migration.yml, v3-to-v4-schema-migration.yml, etc.
