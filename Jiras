@@ -607,3 +607,174 @@ Acceptance Criteria
 [ ] Event publish-log records remain available for subsequent/manual publishing.
 [ ] Implementation is reusable for future schema/data migrations such as V2→V3.
 
+
+Absolutely. I’d update the reconciliation Jira to make it explicitly different from the Day-0 load reconciliation, especially because only the migrated/updated fields are changed during this migration.
+Jira Summary
+Implement Migration Reconciliation Report and Migration Completion
+Description
+Implement reconciliation for the schema/data migration after the transactional data migration and final constraint application.
+The reconciliation report should follow the existing Day-0 data load reconciliation report format, but with migration-specific checks and additional summary counts.
+The reconciliation must compare only the fields being updated as part of the migration. Existing fields that are not part of the migration must not be compared because they are intentionally left untouched.
+Reconciliation Flow
+Transactional Data Migration
+        ↓
+Apply Final NOT NULL Constraints
+        ↓
+Generate Migration Reconciliation Report
+        ↓
+Product Team Verification
+        ↓
+Verification Successful
+        ↓
+Migration Complete
+        ↓
+Manual Event Publishing via Ausysys
+Reconciliation Report
+Generate a CSV report similar to the existing Day-0 data load reconciliation report.
+For each migrated record, the report should contain two entries:
+1. Source
+   ↓
+   V1 value
+
+2. Target
+   ↓
+   V2 value
+The report should include:
+Entity/record identifier
+Field/column name
+Source value
+Target value
+Error column
+Migration status as applicable
+Example:
+record_id | type   | field_b | field_c | error
+----------|--------|---------|---------|------
+1001      | SOURCE | old-B   | old-C   |
+1001      | TARGET | new-B   | new-C   |
+If a migrated field does not match the expected target value:
+record_id | type   | field_b | field_c | error
+----------|--------|---------|---------|----------------------
+1001      | SOURCE | old-B   | old-C   |
+1001      | TARGET | wrong-B | new-C   | field_b mismatch
+Fields to Reconcile
+The reconciliation must compare only the applicable/migrated fields defined in the migration configuration.
+For example:
+V1 MAIN
+ ├── existing_field_1  ← NOT changed
+ ├── existing_field_2  ← NOT changed
+ ├── field_A           ← replaced
+ └── data_version
+
+Migration
+ └── field_A → field_B + field_C
+
+Reconciliation
+ ├── field_B ✓
+ ├── field_C ✓
+ └── existing_field_1 / existing_field_2 → NOT compared
+This prevents false reconciliation failures for fields that were intentionally not modified.
+The applicable fields should be driven by the loaded migration configuration rather than hard-coded separately in the reconciliation logic.
+Summary Section
+The reconciliation summary must include the following counts:
+Migration Reconciliation Summary
+
+--------------------------------------
+Expected Data Updates     : 2,000
+Successful Data Updates   : 2,000
+Failed Data Updates       : 0
+
+Migration Audit Count     : 2,000
+Event Publish Log Count   : 2,000
+
+Reconciliation Success   : YES
+--------------------------------------
+This differs from the existing Day-0 load reconciliation, where the summary primarily reports the MAIN table load count.
+For schema/data migration, the summary must reconcile three related outputs:
+Data Update Count
+       +
+Migration Audit Count
+       +
+Event Publish Log Count
+Expected relationship:
+Data Updates = Migration Audit Records = Event Publish Log Records
+Reconciliation Checks
+The reconciliation should verify:
+Expected migration records = CSV records.
+Successful MAIN data updates = expected records.
+Failed MAIN updates = 0.
+Migration audit count = successful MAIN update count.
+Event publish-log count = successful MAIN update count.
+Each expected record exists in MAIN.
+Target data version is correct.
+Only configured applicable fields are compared.
+Each applicable field contains the expected target value.
+Mandatory migrated fields contain valid values.
+Any mismatch is captured in the report error column.
+Existing/non-migrated fields are not included in value comparison.
+Method Structure
+Suggested methods:
+reconcileMigration();
+
+generateReconciliationReport();
+
+reconcileUpdatedFields();
+
+validateMigrationCounts();
+
+validateAuditCount();
+
+validateEventPublishLogCount();
+
+completeMigration();
+The main flow would be:
+public void reconcileMigration(
+        String entity,
+        List<MigrationDataRow> rows) {
+
+    validateMigrationCounts();
+
+    validateAuditCount();
+
+    validateEventPublishLogCount();
+
+    reconcileUpdatedFields();
+
+    generateReconciliationReport();
+}
+Error Handling
+If reconciliation finds any mismatch:
+Reconciliation Failure
+        ↓
+Generate report with errors
+        ↓
+Do NOT mark migration COMPLETE
+        ↓
+Product Team investigates
+        ↓
+Corrective action / rerun as applicable
+Examples of reconciliation errors:
+MAIN update count mismatch.
+Audit count mismatch.
+Event publish-log count mismatch.
+Expected target value not present in MAIN.
+Mandatory migrated field missing.
+Incorrect target data version.
+Unexpected record updated.
+Updated field value mismatch.
+Acceptance Criteria
+[ ] Reconciliation CSV follows the existing Day-0 data load reconciliation report format.
+[ ] Each migrated record produces source and target entries.
+[ ] Report contains an error column for MAIN data-update/reconciliation errors.
+[ ] Reconciliation compares only fields updated by the migration.
+[ ] Existing fields that are not modified by migration are excluded from value comparison.
+[ ] Applicable fields are driven by migration configuration.
+[ ] Summary contains expected/successful/failed data update counts.
+[ ] Summary contains migration audit count.
+[ ] Summary contains event publish-log count.
+[ ] Data update count, audit count and event publish-log count are reconciled.
+[ ] Target data version is verified.
+[ ] Field-level mismatches are captured in the CSV.
+[ ] Reconciliation report is generated before Product Team verification.
+[ ] Migration is not marked complete when reconciliation fails.
+[ ] Successful reconciliation allows migration completion and subsequent manual event publishing.
+
