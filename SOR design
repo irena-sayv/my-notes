@@ -1,4 +1,4 @@
-SOR Schema Versioning & Production Data Migration — Summary
+iSOR Schema Versioning & Production Data Migration — Summary
 
 1. Architecture
 
@@ -548,3 +548,90 @@ Reconcile
 Apply Final Constraints
       ↓
 Mark Migration Complete
+
+
+
+
+                    ┌─────────────────────────────┐
+                    │     DB Deployment / Job      │
+                    │        (OpenShift)           │
+                    └──────────────┬──────────────┘
+                                   ↓
+                    ┌─────────────────────────────┐
+                    │     PREPARE DATABASE         │
+                    │                             │
+                    │ • Create production backup   │
+                    │ • Archive existing HISTORY   │
+                    │ • Create new empty HISTORY   │
+                    │ • Copy existing MAIN data    │
+                    │   into V1 history archive    │
+                    │ • Update MAIN to V2 schema   │
+                    │ • New columns remain NULLable│
+                    └──────────────┬──────────────┘
+                                   ↓
+                         DB Deployment Complete
+                                   ↓
+                    ┌─────────────────────────────┐
+                    │       PROD SUPPORT          │
+                    │          VERIFY             │
+                    │                             │
+                    │ ✓ Backup created             │
+                    │ ✓ History archive created    │
+                    │ ✓ Archive contains existing  │
+                    │   production MAIN data       │
+                    │ ✓ New empty active HISTORY   │
+                    │ ✓ MAIN has V2 schema         │
+                    │ ✓ New columns are nullable   │
+                    └──────────────┬──────────────┘
+                                   ↓
+                            All checks OK?
+                           /               \
+                         NO                 YES
+                         ↓                   ↓
+                   Stop / Fix          Trigger Suosys
+                                           Job
+                                             ↓
+                              ┌────────────────────────┐
+                              │  Suosys Job calls API   │
+                              │  to start data migration│
+                              └────────────┬───────────┘
+                                           ↓
+                              ┌────────────────────────┐
+                              │  Migration Service      │
+                              │                        │
+                              │ Config already loaded   │
+                              │ during application      │
+                              │ startup                 │
+                              └────────────┬───────────┘
+                                           ↓
+                              Validate migration input
+                                           ↓
+                         ┌────────────────────────────────┐
+                         │      ONE DB TRANSACTION        │
+                         │                                │
+                         │  1. Batch UPDATE MAIN          │
+                         │  2. Batch INSERT Audit         │
+                         │  3. Batch INSERT Outbox       │
+                         │                                │
+                         │  All succeed → COMMIT          │
+                         │  Any failure → ROLLBACK        │
+                         └───────────────┬────────────────┘
+                                         ↓
+                              Apply NOT NULL / final
+                                 V2 constraints
+                                         ↓
+                              Generate Reconciliation
+                                         ↓
+                              ┌──────────────────────┐
+                              │    PRODUCT TEAM      │
+                              │       VERIFY         │
+                              │   Reconciliation     │
+                              └──────────┬───────────┘
+                                         ↓
+                                  Verification OK
+                                         ↓
+                              ┌──────────────────────┐
+                              │      AUSYSYS         │
+                              │ Manual Event Publish │
+                              │      to Kafka        │
+                              └──────────────────────┘
