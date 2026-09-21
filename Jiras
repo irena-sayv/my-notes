@@ -441,3 +441,169 @@ This is important because otherwise someone reading the Jira might interpret Jir
 I would also add one common technical note to Jira 2 and Jira 3
 Transaction boundary: updateMainData(), insertMigrationAudit(), and insertMigrationEvents() are executed within a single Spring-managed transaction. All operations use the same transaction-managed datasource. Any runtime failure in these operations causes the complete transaction to roll back.
 This gives your developers very clear implementation guidance without over-specifying the JDBC implementation beyond what we have already agreed.
+
+Yes. I would make this a single independent Jira covering the complete transactional data-migration unit, with the three atomic batch operations explicitly defined. I’ll also use insertEventPublishLog() instead of insertMigrationEvents().
+Jira Summary
+Implement Transactional Bulk Data Migration, Audit and Event Publish Log
+Description
+Implement the application-driven data migration after the DB pre-migration preparation has been completed and verified by Prod Support.
+The migration service will execute the three database operations as one Spring transaction:
+Batch update MAIN data.
+Batch insert migration audit records.
+Batch insert event publish log records.
+All three operations must succeed for the transaction to commit. Any failure must roll back the complete transaction.
+The migration configuration is already loaded during application startup. The migration API trigger will invoke the migration service after the DB preparation steps have been verified.
+Migration Flow
+Suosys Job
+    ↓
+Migration API
+    ↓
+Validate Migration Input
+    ↓
+Migration Service
+    ↓
+┌─────────────────────────────────────────┐
+│          ONE SPRING TRANSACTION         │
+│                                         │
+│  1. updateMainData()                    │
+│       ↓                                 │
+│  2. insertMigrationAudit()              │
+│       ↓                                 │
+│  3. insertEventPublishLog()             │
+│                                         │
+│  All succeed → COMMIT                   │
+│  Any failure   → ROLLBACK               │
+└───────────────────┬─────────────────────┘
+                    ↓
+          Apply Final Constraints
+                    ↓
+          Generate Reconciliation
+Scope
+1. Validate migration input
+Before executing the transactional data migration:
+Validate requested source and target versions against the loaded migration configuration.
+Validate migration CSV.
+Validate mandatory migration values.
+Validate duplicate records.
+Validate record coverage against MAIN.
+Ensure migration input is complete before any MAIN data is modified.
+2. Batch update MAIN
+Implement:
+updateMainData();
+Use JdbcTemplate.batchUpdate() to update the existing MAIN records.
+The update should:
+Populate new/replacement fields from migration input.
+Leave unchanged fields untouched.
+Set the target business/data version.
+Update only records belonging to the expected source version.
+Use parameterized SQL.
+Validate update counts.
+For the current migration, approximately 2,000 records will be processed in a batch.
+3. Batch insert migration audit
+Implement:
+insertMigrationAudit();
+Insert one migration audit record for each successfully migrated MAIN record.
+Audit should capture information such as:
+Migration ID
+Entity
+Entity ID
+From schema version
+To schema version
+From data version
+To data version
+Migration status
+Migration definition
+Migration timestamp
+Migrated by
+Use:
+jdbcTemplate.batchUpdate()
+4. Batch insert event publish log
+Implement:
+insertEventPublishLog();
+Insert one event publish-log record for each migrated record using the existing event publishing contract.
+The event should represent the migrated V2 state that needs to be published downstream.
+Use:
+jdbcTemplate.batchUpdate()
+Kafka publishing itself is not part of this transaction.
+The event publish log will be used later by the existing/manual publishing process.
+Transaction Requirement
+The three operations must execute within one Spring transaction:
+@Transactional
+public void migrateMainData(
+        List<MigrationDataRow> rows) {
+
+    updateMainData(rows);
+
+    insertMigrationAudit(rows);
+
+    insertEventPublishLog(rows);
+}
+Conceptually:
+ONE TRANSACTION
+      │
+      ├── Batch UPDATE MAIN
+      │
+      ├── Batch INSERT Migration Audit
+      │
+      └── Batch INSERT Event Publish Log
+               │
+               ↓
+          COMMIT
+If any operation fails:
+MAIN UPDATE
+    ↓
+AUDIT INSERT
+    ↓
+EVENT PUBLISH LOG INSERT
+    ↓
+ERROR
+    ↓
+ROLLBACK ALL
+Error Scenarios
+The implementation must handle:
+Invalid migration configuration → migration does not start.
+Invalid CSV → migration does not start.
+Duplicate CSV record → migration does not start.
+Missing MAIN record → migration does not start.
+Missing mandatory migration value → migration does not start.
+MAIN update failure → complete transaction rolls back.
+Unexpected MAIN update count → complete transaction rolls back.
+Migration audit insert failure → MAIN changes roll back.
+Audit count mismatch → transaction rolls back.
+Event publish-log insert failure → MAIN and audit changes roll back.
+Event publish-log count mismatch → transaction rolls back.
+Database failure → complete transaction rolls back.
+Kafka unavailable → no impact on this transaction, since Kafka publishing happens separately.
+Suggested Methods
+validateMigrationInput();
+
+updateMainData();
+
+insertMigrationAudit();
+
+insertEventPublishLog();
+
+validateUpdateCounts();
+
+reconcileMigration();
+The three atomic DB operations are therefore explicitly:
+updateMainData()
+insertMigrationAudit()
+insertEventPublishLog()
+Acceptance Criteria
+[ ] Migration input is validated before MAIN data is modified.
+[ ] MAIN data is updated using JdbcTemplate.batchUpdate().
+[ ] Migration audit records are inserted using JdbcTemplate.batchUpdate().
+[ ] Event publish-log records are inserted using JdbcTemplate.batchUpdate().
+[ ] All three operations execute within one Spring transaction.
+[ ] Successful completion of all three operations results in COMMIT.
+[ ] Failure of any operation results in ROLLBACK of all three operations.
+[ ] MAIN update count is validated.
+[ ] Audit record count is validated.
+[ ] Event publish-log record count is validated.
+[ ] Target business/data version is set during MAIN migration.
+[ ] Unchanged MAIN fields are not modified.
+[ ] Kafka publishing is not performed inside the migration transaction.
+[ ] Event publish-log records remain available for subsequent/manual publishing.
+[ ] Implementation is reusable for future schema/data migrations such as V2→V3.
+
