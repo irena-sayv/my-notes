@@ -422,3 +422,71 @@ Separate migration POJOs for every schema version
 Separate migration services for V1→V2, V2→V3, etc.
 Duplicating migration logic for every schema change
 Instead, new schema migrations are primarily configuration-driven, with new Java logic required only when the migration introduces genuinely new transformation/business behavior that the generic framework cannot support.
+
+How the Schema Definition YAML Makes the Framework Reusable
+The migration framework is generic, while the schema-specific migration rules are externalized in the YAML definition. This allows the same migration service and repository logic to be reused for future migrations such as V2→V3, V3→V4, without creating new migration-specific Java code or POJOs for each schema version.
+Schema Definition Structure
+schema-migration:
+  from-version: 1
+  to-version: 2
+
+  entities:
+    customer:
+      applicable-columns:
+        - field_b
+        - field_c
+        - customer_type
+      mandatory-columns:
+        - field_b
+        - field_c
+Key Properties and Significance
+Property
+Significance
+From Version
+Defines the source schema version for which the migration definition applies. Used to validate that the migration request and current schema are aligned.
+To Version
+Defines the target schema version to which the data is being migrated. Together with from-version, uniquely identifies the schema migration definition.
+Entities
+Defines the entities included in the migration. Each entity has its own schema-specific migration properties. This allows the same framework to support multiple entities without entity-specific migration code.
+Applicable Columns
+Defines the columns involved in the migration for the entity. These columns are used for CSV column validation, migration/update DML generation, and reconciliation. The migration framework references these definitions instead of hardcoding schema-specific column names in Java code.
+Mandatory Columns
+Defines the columns that must contain valid values after migration. These are used for mandatory-field validation and to determine which columns require the final NOT NULL constraints after successful migration.
+How This Makes the Framework Reusable
+The Java migration framework contains the common migration logic, while the YAML contains the schema-specific definition.
+                Generic Migration Framework
+                         │
+                         │ reads
+                         ▼
+              Schema Migration YAML
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+    Version Range     Entity      Column Definitions
+          │              │              │
+          │              │        ┌─────┴─────┐
+          │              │        ▼           ▼
+          │              │   Applicable   Mandatory
+          │              │    Columns      Columns
+          │              │
+          ▼              ▼
+       V1 → V2       Customer
+For a future V2→V3 migration, the framework does not need a new migration implementation. A new definition can simply be provided:
+v2-to-v3-schema-migration.yml
+with the V2→V3 entity and column definitions.
+The same framework then uses the YAML to determine:
+Which entities are applicable
+Which CSV columns are expected
+Which columns are used in migration DML
+Which columns are compared during reconciliation
+Which columns are mandatory
+Which columns require final NOT NULL constraints
+Which schema-version transition is being performed
+Key Design Principle
+Keep migration logic generic in Java and keep schema-specific information in the YAML definition.
+This avoids:
+Hardcoded schema-specific column names in Java
+Separate migration POJOs for every schema version
+Separate migration services for V1→V2, V2→V3, etc.
+Duplicating migration logic for every schema change
+Instead, new schema migrations are primarily configuration-driven, with new Java logic required only when the migration introduces genuinely new transformation/business behavior that the generic framework cannot support.
