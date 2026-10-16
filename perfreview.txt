@@ -1,4 +1,4 @@
-1. Taking Ownership
+i1. Taking Ownership
 
 - Technical Decision-Making: Evaluated technical options and trade-offs to select solutions aligned with strategic technology direction, addressing implementation challenges and reducing the risk of future rework.
 - Adopting New Approaches: Embraced new technologies and approaches, including the Spring Boot migration and early adoption of AutoSys Managed Kubernetes Jobs, working through implementation challenges and partnering with relevant teams to resolve operational gaps.
@@ -15,3 +15,24 @@
 - Cross-Team Collaboration: Worked closely with partner teams, Production Support, DBA, CQE, and other stakeholders to align dependencies, resolve integration challenges, and support testing, disaster recovery readiness, and delivery milestones.
 - Product Team Collaboration: Collaborated with the Product team to clarify requirements, align on expected outcomes, and resolve functional and technical questions, helping ensure that implementation met business needs and supported smooth delivery.
 - Knowledge Sharing & Team Enablement: Shared technical learnings and guided the team on development approaches, security considerations, and engineering standards, supporting consistent implementation and collective delivery quality.
+
+
+1. Taking Ownership
+
+- Strategic Thinking & Long-Term Solutions: Evaluated technical options and trade-offs to select solutions aligned with strategic technology direction, prioritizing long-term maintainability, operational efficiency, and prevention of future rework.
+- Adopting New Approaches: Embraced new technologies and approaches, including the Spring Boot migration and early adoption of AutoSys Managed Kubernetes Jobs, working through implementation challenges and partnering with relevant teams to resolve operational gaps.
+- Driving Production Readiness & Delivery: Drove production readiness for the new RDH application and Jamaica Go-Live by coordinating disaster recovery preparedness, preparing operational runbooks, supporting DR dry runs, and setting up critical components and integrations, including WIP, load balancer, NGINX, Oracle, and other peripheral components. Also advanced Tranche 2 delivery through integration implementation and dependency resolution.
+
+2. We Deliver with Pride
+
+- Standardization & Reusability: Established and continuously improved development guidelines and reusable solutions to promote consistency and maintainability across country deployments. Designed a configuration-driven schema migration framework for GM retrofit, enabling future schema upgrades through configuration changes without code modifications.
+- Continuous Improvement & Productivity: Adopted approved AI-assisted tools and created reusable presets for AutoSys JIL generation and Product data-file transformation, reducing manual effort and improving consistency and data quality.
+- Engineering Excellence & Risk Management: Promoted secure coding and engineering practices through structured code reviews, continuous dependency upgrades, regular vulnerability and SBOM reviews, and timely remediation of identified risks, addressing underlying issues and supporting long-term application stability.
+- Reliable Delivery & Operational Readiness: Applied engineering standards and proactive risk management across development, integration, testing, and production-readiness activities to support smooth go-live execution and dependable delivery outcomes.
+
+3. We Succeed Together
+
+- Cross-Team Collaboration: Worked closely with partner teams, Production Support, DBA, CQE, and other stakeholders to align dependencies, resolve integration challenges, and support testing, disaster recovery readiness, and delivery milestones.
+- Product Team Collaboration: Collaborated with the Product team to clarify requirements, align on expected outcomes, and resolve functional and technical questions, helping ensure that implementation met business needs and supported smooth delivery.
+- Team Collaboration & Enablement: Shared technical learnings and guided the team on development approaches, security considerations, and engineering standards by establishing clear development guidelines and conducting regular code reviews, supporting consistent implementation, achievement of sprint goals, and collective delivery quality.
+- Standardization & Reusability: Established and continuously improved development guidelines and reusable solutions to promote consistency and maintainability across country deployments. Designed a configuration-driven schema migration framework for JM Retrofit to align existing production data with the latest schema changes introduced through TNT, while adhering to the SOR lifecycle. Implementation is in progress, with the framework planned for use during the Tranche 2 release; future schema upgrades can be supported through configuration changes without code modifications.
